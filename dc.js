@@ -2395,11 +2395,27 @@
 
             var chartBodyClip = dc.utils.appendOrSelect(defs, "clipPath").attr("id", getClipPathId());
 
+            var rightDotClip = dc.utils.appendOrSelect(defs, "clipPath").attr("id", "rightDotClip");
+            var leftDotClip = dc.utils.appendOrSelect(defs, "clipPath").attr("id", "leftDotClip");
+
+            dc.utils.appendOrSelect(leftDotClip, "rect")
+                .attr("width", 50)
+                .attr("height", _chart.height())
+                .attr("y", -10)
+            
+            dc.utils.appendOrSelect(rightDotClip, "rect")
+                .attr("width", 50)
+                .attr("height", _chart.height())
+                .attr("y", -10)
+                .attr("x", -50)
+            
             var padding = _clipPadding * 2;
 
             dc.utils.appendOrSelect(chartBodyClip, "rect")
-                .attr("width", _chart.xAxisLength() + padding)
-                .attr("height", _chart.yAxisHeight() + padding);
+                .attr("width", _chart.xAxisLength() + 200)
+                .attr("x", -10)
+                .attr("height", _chart.yAxisHeight() + 200)
+                .attr("y", -200)
         }
 
         _chart._preprocessData = function() {};
@@ -2413,6 +2429,29 @@
             generateClipPath();
 
             drawChart(true);
+
+            _chart.svg()
+                .append('g')
+                .attr('class', 'currentOverlay')
+                .attr("transform", "translate(" + _chart.margins().left + ", " + (_chart.margins().top - 8) + ")")
+                .append('g')
+                .attr('class', 'currentTooltip')
+                .append('path')
+                .attr('d', 'M-35-69.3886719h70.9960938c2.7617188,0,5,2.2385254,5,5v52.9697266c0,2.7614746-2.2382812,5-5,5H4.956543L0.0986328-1l-5.2314453-5.4189453H-35c-2.7612305,0-5-2.2385254-5-5v-52.9697266C-40-67.1501465-37.7612305-69.3886719-35-69.3886719z')
+
+            var overlay = _chart.svg().select('g.currentOverlay');
+            var tooltip = overlay.select('g.currentTooltip');
+
+            tooltip
+                .append('text')
+                .attr('class', 'count')
+                .attr("text-anchor", "middle")
+                .attr("transform", "translate(0,-35)")
+
+            tooltip.append('text')
+                .attr('class', 'label')
+                .attr("text-anchor", "middle")
+                .attr("transform", "translate(0,-20)")
 
             configureMouseZoom();
 
@@ -3975,6 +4014,22 @@
             if (_dashStyle)
                 path.attr("stroke-dasharray", _dashStyle);
 
+            if ( ! _defined) {
+                var initPositions = [];
+                path.attr("d", function (d) {
+
+                    for (var i = 0; i < d.values.length; i++) {
+                        initPositions.push({
+                            x: d.values[i].x,
+                            y: 0,
+                            y0: 0,
+                        })
+                        
+                    };
+                    return safeD(line(initPositions));
+                });
+            }
+
             dc.transition(layers.select("path.line"), _chart.transitionDuration())
                 .ease(_chart.ease())
                 .attr("stroke", colors)
@@ -4032,52 +4087,47 @@
                     if (_defined) points = points.filter(_defined);
 
                     var g = tooltips.select("g." + TOOLTIP_G_CLASS + "._" + layerIndex);
+                    var firstRun = g.empty();
                     if (g.empty()) g = tooltips.append("g").attr("class", TOOLTIP_G_CLASS + " _" + layerIndex);
-
-                    createRefLines(g);
-
-                    var dots = g.selectAll("circle." + DOT_CIRCLE_CLASS)
-                        .data(points,dc.pluck('x'));
-                    
-                    var tooltipOverlay = g.selectAll('.tooltip');
 
                     var pointGroups = g.selectAll('g.pointGroup')
                         .data(points,dc.pluck('x'));
-
-                    dots.enter()
-                        .append("path")
-                        .attr('class', 'tooltip')
-                        .attr("fill", _chart.getColor)
-                        .style("fill-opacity", _dataPointFillOpacity)
-                        .style("stroke-opacity", _dataPointStrokeOpacity)
                     
+                    var tooltipText = pointGroups.select('text');
 
-                    dots.enter()
+                    pointGroups.enter()
                         .append("g")
                         .attr('class', 'pointGroup')
                         .attr("transform", function (d) {
-                            return "translate(" + dc.utils.safeNumber(_chart.x()(d.x)) + ", " + dc.utils.safeNumber(_chart.y()(d.y)) + ")"
+                            return "translate(" + dc.utils.safeNumber(_chart.x()(d.x)) + ", " + dc.utils.safeNumber(_chart.y()( (firstRun) ? 0 : d.y )) + ")"
                         })
-                        .on("mousemove", function (d) {
+                        .on("mouseover", function (d) {
                             var dot = d3.select(this);
+                            var data = dot.data()[0];
 
+                            var overlay = _chart.svg().select('g.currentOverlay');
+                            overlay.classed('hover', true);
+
+                            var tooltip = overlay.select('g.currentTooltip');
+                            var count = tooltip.select('text.count');
+                            var label = tooltip.select('text.label');
+                            
+                            tooltip.attr("transform", dot.attr("transform"))
+
+                            count.text(data.y)
+                            label.text(data.layer)
+                                .attr('class', 'label ' + data.layer);
+
+                            this.parentNode.appendChild(this);
                             dot.classed('hover', true);
-                            // var text = dot.select("text");
-                            // text.style('display', 'block');
-
-                            showDot(dot);
-                            // showRefLines(dot, g);
                         })
                         .on("mouseout", function (d) {
                             var dot = d3.select(this);
 
+                            var overlay = _chart.svg().select('g.currentOverlay');
+                            overlay.classed('hover', false);
+
                             dot.classed('hover', false);
-
-                            // var text = dot.select("text");
-                            // text.style('display', 'none');
-
-                            hideDot(dot);
-                            hideRefLines(g);
                         })
                         .append("circle")
                         .attr("class", DOT_CIRCLE_CLASS)
@@ -4085,15 +4135,7 @@
                         .attr("fill", _chart.getColor)
                         .style("fill-opacity", _dataPointFillOpacity)
                         .style("stroke-opacity", _dataPointStrokeOpacity)
-                        .append("title").text(dc.pluck('data', _chart.title(d.name)));
-
-                    pointGroups.append('text')
-                        .text(function(d) {
-                            console.log(d)
-                            return d.data.value + " " + d.layer;
-                        })
-                        .attr('x', -10)
-                        .attr('y', -10)
+                        // .append("title").text(dc.pluck('data', _chart.title(d.name)));
 
 
                     dc.transition(pointGroups, _chart.transitionDuration())
@@ -4102,18 +4144,32 @@
                         })
                         .ease(_chart.ease())
 
+                    // tooltipText.remove()
+                    // tooltipText = pointGroups
+                    //     .append('path')
+                    //     .attr('d', 'M-35-69.3886719h70.9960938c2.7617188,0,5,2.2385254,5,5v52.9697266c0,2.7614746-2.2382812,5-5,5H4.956543L0.0986328-1l-5.2314453-5.4189453H-35c-2.7612305,0-5-2.2385254-5-5v-52.9697266C-40-67.1501465-37.7612305-69.3886719-35-69.3886719z')
+                    //     .append('text')
+                    //     .attr('x', -10)
+                    //     .attr('y', -10)
+                
+                    tooltipText.text(function(d) {
+                        return d.data.value + " " + d.layer;
+                    })
 
-                    // dc.transition(dots, _chart.transitionDuration()).attr("cx", function (d) {
-                    //         return dc.utils.safeNumber(_chart.x()(d.x));
-                    //     })
-                    //     .ease(_chart.ease())
-                    //     .attr("cy", function (d) {
-                    //         return dc.utils.safeNumber(_chart.y()(d.y + d.y0));
-                    //     })
-                    //     .attr("fill", _chart.getColor)
-                    //     .select("title").text(dc.pluck('data', _chart.title(d.name)));
+                    pointGroups.exit().remove();
 
-                    dots.exit().remove();
+                    pointGroups.each(function(dot, index) {
+                        var dot = d3.select(this);
+                        var data = dot.data()[0]
+
+                        if (_chart.xAxisMax().toString() == data.x.toString()) {
+                            dot.select('circle').attr("clip-path", "url(#rightDotClip)");
+                        }
+
+                        if (_chart.xAxisMin().toString() == data.x.toString()) {
+                            dot.select('circle').attr("clip-path", "url(#leftDotClip)");
+                        }
+                    })
                 });
             }
         }
